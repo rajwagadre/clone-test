@@ -1,0 +1,27 @@
+model Channel {
+  id          String   @id @default(uuid())
+  name        String
+  description String?
+  isPrivate   Boolean  @default(false)
+  createdBy   String
+  created_at  DateTime @default(now())
+  updated_at  DateTime @updatedAt
+
+  creator     User     @relation("CreatedChannels", fields: [createdBy], references: [id])
+  messages    Message[]
+  members     ChannelMember[]
+}
+
+model ChannelMember {
+  id         String   @id @default(uuid())
+  channelId  String
+  userId     String
+  role       String   @default("member") // "admin" or "member"
+  created_at DateTime @default(now())
+  updated_at DateTime @updatedAt
+
+  channel    Channel  @relation(fields: [channelId], references: [id], onDelete: Cascade)
+  user       User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([channelId, userId])
+}

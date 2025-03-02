@@ -5,12 +5,14 @@ model Message {
   updated_at DateTime @updatedAt
 
   senderId   String
-  receiverId String
+  receiverId String?
+  channelId  String?
+  type       String   // "private", "public", "channel"
 
-  type String
+  sender     User     @relation("SentMessages", fields: [senderId], references: [id])
+  receiver   User?    @relation("ReceivedMessages", fields: [receiverId], references: [id])
+  channel    Channel? @relation(fields: [channelId], references: [id], onDelete: Cascade)
 
-  sender   User @relation("SentMessages", fields: [senderId], references: [id])
-  receiver User @relation("ReceivedMessages", fields: [receiverId], references: [id])
-
- @@index([type])
+  @@index([type])
+  @@index([channelId])
 }

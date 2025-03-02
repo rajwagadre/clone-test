@@ -14,12 +14,15 @@ model Message {
   updated_at DateTime @updatedAt
 
   senderId   String
-  receiverId String? // <-- Change this to allow null
+  receiverId String? // <-- Allows null
 
   type String
 
   sender   User  @relation("SentMessages", fields: [senderId], references: [id])
-  receiver User? @relation("ReceivedMessages", fields: [receiverId], references: [id]) // <-- Make this optional
+  receiver User? @relation("ReceivedMessages", fields: [receiverId], references: [id]) // <-- Optional
+
+  channelId String? // <-- Add this field
+  channel   Channel? @relation(fields: [channelId], references: [id]) // <-- Now it has a reference
 
   @@index([type])
 }
@@ -39,6 +42,35 @@ model User {
 
   sentMessages     Message[] @relation("SentMessages")
   receivedMessages Message[] @relation("ReceivedMessages")
+
+  createdChannels    Channel[]       @relation("CreatedChannels") // <-- Now correctly linked
+  channelMemberships ChannelMember[]
 }
 
+model Channel {
+  id          String   @id @default(uuid())
+  name        String
+  description String?
+  isPrivate   Boolean  @default(false)
+  createdBy   String
+  created_at  DateTime @default(now())
+  updated_at  DateTime @updatedAt
 
+  creator  User            @relation("CreatedChannels", fields: [createdBy], references: [id]) // <-- Fixed
+  messages Message[]       @relation // <-- Fixed: Now has an opposite relation in Message
+  members  ChannelMember[]
+}
+
+model ChannelMember {
+  id         String   @id @default(uuid())
+  channelId  String
+  userId     String
+  role       String   @default("member") // "admin" or "member"
+  created_at DateTime @default(now())
+  updated_at DateTime @updatedAt
+
+  channel Channel @relation(fields: [channelId], references: [id], onDelete: Cascade)
+  user    User    @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([channelId, userId])
+}
