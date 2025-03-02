@@ -1,7 +1,7 @@
 import React, { useState, useEffect, useRef } from 'react';
-import { io, Socket } from 'socket.io-client';
-import axios from 'axios';
-import { MessageSquare, Users, Hash, Settings, LogOut, Plus, X, Edit, Trash2, UserPlus, UserMinus } from 'lucide-react';
+import { io, Socket } from "socket.io-client";
+import axios from "axios";
+import { MessageSquare, Users, Hash, Settings, LogOut, Plus, X, Edit, Trash2, UserPlus, UserMinus, Bell } from 'lucide-react';
 import './App.css';
 
 const API_BASE_URL = "http://localhost:8000/api";
@@ -38,6 +38,16 @@ interface Channel {
   isPrivate: boolean;
 }
 
+interface Notification {
+  id: string;
+  message: string;
+  type: "message" | "channel" | "system";
+  read: boolean;
+  timestamp: Date;
+  senderId?: string;
+  channelId?: string;
+}
+
 const App: React.FC = () => {
   // Authentication states
   const [isLoggedIn, setIsLoggedIn] = useState(false);
@@ -72,9 +82,15 @@ const App: React.FC = () => {
   const [newChannelDescription, setNewChannelDescription] = useState("");
   const [isChannelPrivate, setIsChannelPrivate] = useState(false);
   const [showAddMember, setShowAddMember] = useState(false);
+  const [showDeleteChannelConfirm, setShowDeleteChannelConfirm] = useState(false);
   const [selectedMembers, setSelectedMembers] = useState<string[]>([]);
   const [editingMessage, setEditingMessage] = useState<string | null>(null);
   const [editMessageContent, setEditMessageContent] = useState("");
+
+  // Notification states
+  const [notifications, setNotifications] = useState<Notification[]>([]);
+  const [showNotifications, setShowNotifications] = useState(false);
+  const [unreadNotifications, setUnreadNotifications] = useState(0);
 
   // Backend connection test
   const [backendStatus, setBackendStatus] = useState("Connecting to backend...");
@@ -122,6 +138,31 @@ const App: React.FC = () => {
         newSocket.on("newMessage", (message: Message) => {
           console.log("New message received:", message);
           handleNewMessage(message);
+          
+          // Add notification for new message if not from current user
+          if (message.senderId !== parsedUser.id) {
+            const sender = message.sender?.fullName || message.sender?.email || "Someone";
+            let notificationMessage = "";
+            
+            if (message.type === "private") {
+              notificationMessage = `${sender} sent you a private message`;
+            } else if (message.type === "channel") {
+              const channelName = channels.find(c => c.id === message.channelId)?.name || "a channel";
+              notificationMessage = `${sender} posted in #${channelName}`;
+            } else {
+              notificationMessage = `${sender} posted a public message`;
+            }
+            
+            addNotification({
+              id: Date.now().toString(),
+              message: notificationMessage,
+              type: "message",
+              read: false,
+              timestamp: new Date(),
+              senderId: message.senderId,
+              channelId: message.channelId
+            });
+          }
         });
 
         newSocket.on("messageUpdated", (message: Message) => {
@@ -132,6 +173,138 @@ const App: React.FC = () => {
         newSocket.on("messageDeleted", ({ messageId }: { messageId: string }) => {
           console.log("Message deleted:", messageId);
           handleMessageDelete(messageId);
+        });
+        
+        // Channel events
+        newSocket.on("channelCreated", (channel: Channel) => {
+          console.log("Channel created:", channel);
+          setChannels(prev => [...prev, channel]);
+          addNotification({
+            id: Date.now().toString(),
+            message: `New channel #${channel.name} was created`,
+            type: "channel",
+            read: false,
+            timestamp: new Date(),
+            channelId: channel.id
+          });
+        });
+        
+        newSocket.on("channelUpdated", (channel: Channel) => {
+          console.log("Channel updated:", channel);
+          setChannels(prev => prev.map(c => c.id === channel.id ? channel : c));
+          
+          if (selectedChannel?.id === channel.id) {
+            setSelectedChannel(channel);
+          }
+          
+          addNotification({
+            id: Date.now().toString(),
+            message: `Channel #${channel.name} was updated`,
+            type: "channel",
+            read: false,
+            timestamp: new Date(),
+            channelId: channel.id
+          });
+        });
+        
+        newSocket.on("channelDeleted", ({ channelId }: { channelId: string }) => {
+          console.log("Channel deleted:", channelId);
+          const deletedChannel = channels.find(c => c.id === channelId);
+          
+          setChannels(prev => prev.filter(c => c.id !== channelId));
+          
+          if (selectedChannel?.id === channelId) {
+            setSelectedChannel(null);
+            setChannelMessages([]);
+            setActiveSection("messages");
+          }
+          
+          addNotification({
+            id: Date.now().toString(),
+            message: `Channel #${deletedChannel?.name || "unknown"} was deleted`,
+            type: "channel",
+            read: false,
+            timestamp: new Date()
+          });
+        });
+        
+        newSocket.on("channelMemberAdded", ({ channelId, user }: { channelId: string, user: User }) => {
+          console.log("Member added to channel:", channelId, user);
+          
+          // Update channels list
+          setChannels(prev => prev.map(channel => {
+            if (channel.id === channelId) {
+              return {
+                ...channel,
+                members: [...(channel.members || []), user]
+              };
+            }
+            return channel;
+          }));
+          
+          // Update selected channel if it's the one being modified
+          if (selectedChannel?.id === channelId) {
+            setSelectedChannel(prev => {
+              if (!prev) return null;
+              return {
+                ...prev,
+                members: [...(prev.members || []), user]
+              };
+            });
+          }
+          
+          // Add notification
+          const channelName = channels.find(c => c.id === channelId)?.name || "a channel";
+          addNotification({
+            id: Date.now().toString(),
+            message: `${user.fullName || user.email} was added to #${channelName}`,
+            type: "channel",
+            read: false,
+            timestamp: new Date(),
+            channelId: channelId
+          });
+        });
+        
+        newSocket.on("channelMemberRemoved", ({ channelId, userId }: { channelId: string, userId: string }) => {
+          console.log("Member removed from channel:", channelId, userId);
+          
+          // Get user info before removing
+          const removedUser = users.find(u => u.id === userId);
+          
+          // Update channels list
+          setChannels(prev => prev.map(channel => {
+            if (channel.id === channelId) {
+              return {
+                ...channel,
+                members: (channel.members || []).filter(member => member.id !== userId)
+              };
+            }
+            return channel;
+          }));
+          
+          // Update selected channel if it's the one being modified
+          if (selectedChannel?.id === channelId) {
+            setSelectedChannel(prev => {
+              if (!prev) return null;
+              return {
+                ...prev,
+                members: (prev.members || []).filter(member => member.id !== userId)
+              };
+            });
+          }
+          
+          // Add notification
+          const channelName = channels.find(c => c.id === channelId)?.name || "a channel";
+          const userName = removedUser?.fullName || removedUser?.email || "A user";
+          
+          addNotification({
+            id: Date.now().toString(),
+            message: `${userName} was removed from #${channelName}`,
+            type: "channel",
+            read: false,
+            timestamp: new Date(),
+            channelId: channelId
+          });
         });
 
         setSocket(newSocket);
@@ -156,8 +329,24 @@ const App: React.FC = () => {
     scrollToBottom();
   }, [messages, publicMessages, channelMessages]);
 
+  // Update unread notification count
+  useEffect(() => {
+    const unreadCount = notifications.filter(n => !n.read).length;
+    setUnreadNotifications(unreadCount);
+  }, [notifications]);
+
   const scrollToBottom = () => {
     messagesEndRef.current?.scrollIntoView({ behavior: "smooth" });
+  };
+
+  // Add a new notification
+  const addNotification = (notification: Notification) => {
+    setNotifications(prev => [notification, ...prev].slice(0, 50)); // Keep only the latest 50 notifications
+  };
+
+  // Mark all notifications as read
+  const markAllNotificationsAsRead = () => {
+    setNotifications(prev => prev.map(n => ({ ...n, read: true })));
   };
 
   // Handle new message from socket
@@ -273,6 +462,31 @@ const App: React.FC = () => {
       newSocket.on("newMessage", (message: Message) => {
         console.log("New message received:", message);
         handleNewMessage(message);
+        
+        // Add notification for new message if not from current user
+        if (message.senderId !== user.id) {
+          const sender = message.sender?.fullName || message.sender?.email || "Someone";
+          let notificationMessage = "";
+          
+          if (message.type === "private") {
+            notificationMessage = `${sender} sent you a private message`;
+          } else if (message.type === "channel") {
+            const channelName = channels.find(c => c.id === message.channelId)?.name || "a channel";
+            notificationMessage = `${sender} posted in #${channelName}`;
+          } else {
+            notificationMessage = `${sender} posted a public message`;
+          }
+          
+          addNotification({
+            id: Date.now().toString(),
+            message: notificationMessage,
+            type: "message",
+            read: false,
+            timestamp: new Date(),
+            senderId: message.senderId,
+            channelId: message.channelId
+          });
+        }
       });
 
       newSocket.on("messageUpdated", (message: Message) => {
@@ -283,6 +497,138 @@ const App: React.FC = () => {
       newSocket.on("messageDeleted", ({ messageId }: { messageId: string }) => {
         console.log("Message deleted:", messageId);
         handleMessageDelete(messageId);
+      });
+      
+      // Channel events
+      newSocket.on("channelCreated", (channel: Channel) => {
+        console.log("Channel created:", channel);
+        setChannels(prev => [...prev, channel]);
+        addNotification({
+          id: Date.now().toString(),
+          message: `New channel #${channel.name} was created`,
+          type: "channel",
+          read: false,
+          timestamp: new Date(),
+          channelId: channel.id
+        });
+      });
+      
+      newSocket.on("channelUpdated", (channel: Channel) => {
+        console.log("Channel updated:", channel);
+        setChannels(prev => prev.map(c => c.id === channel.id ? channel : c));
+        
+        if (selectedChannel?.id === channel.id) {
+          setSelectedChannel(channel);
+        }
+        
+        addNotification({
+          id: Date.now().toString(),
+          message: `Channel #${channel.name} was updated`,
+          type: "channel",
+          read: false,
+          timestamp: new Date(),
+          channelId: channel.id
+        });
+      });
+      
+      newSocket.on("channelDeleted", ({ channelId }: { channelId: string }) => {
+        console.log("Channel deleted:", channelId);
+        const deletedChannel = channels.find(c => c.id === channelId);
+        
+        setChannels(prev => prev.filter(c => c.id !== channelId));
+        
+        if (selectedChannel?.id === channelId) {
+          setSelectedChannel(null);
+          setChannelMessages([]);
+          setActiveSection("messages");
+        }
+        
+        addNotification({
+          id: Date.now().toString(),
+          message: `Channel #${deletedChannel?.name || "unknown"} was deleted`,
+          type: "channel",
+          read: false,
+          timestamp: new Date()
+        });
+      });
+      
+      newSocket.on("channelMemberAdded", ({ channelId, user }: { channelId: string, user: User }) => {
+        console.log("Member added to channel:", channelId, user);
+        
+        // Update channels list
+        setChannels(prev => prev.map(channel => {
+          if (channel.id === channelId) {
+            return {
+              ...channel,
+              members: [...(channel.members || []), user]
+            };
+          }
+          return channel;
+        }));
+        
+        // Update selected channel if it's the one being modified
+        if (selectedChannel?.id === channelId) {
+          setSelectedChannel(prev => {
+            if (!prev) return null;
+            return {
+              ...prev,
+              members: [...(prev.members || []), user]
+            };
+          });
+        }
+        
+        // Add notification
+        const channelName = channels.find(c => c.id === channelId)?.name || "a channel";
+        addNotification({
+          id: Date.now().toString(),
+          message: `${user.fullName || user.email} was added to #${channelName}`,
+          type: "channel",
+          read: false,
+          timestamp: new Date(),
+          channelId: channelId
+        });
+      });
+      
+      newSocket.on("channelMemberRemoved", ({ channelId, userId }: { channelId: string, userId: string }) => {
+        console.log("Member removed from channel:", channelId, userId);
+        
+        // Get user info before removing
+        const removedUser = users.find(u => u.id === userId);
+        
+        // Update channels list
+        setChannels(prev => prev.map(channel => {
+          if (channel.id === channelId) {
+            return {
+              ...channel,
+              members: (channel.members || []).filter(member => member.id !== userId)
+            };
+          }
+          return channel;
+        }));
+        
+        // Update selected channel if it's the one being modified
+        if (selectedChannel?.id === channelId) {
+          setSelectedChannel(prev => {
+            if (!prev) return null;
+            return {
+              ...prev,
+              members: (prev.members || []).filter(member => member.id !== userId)
+            };
+          });
+        }
+        
+        // Add notification
+        const channelName = channels.find(c => c.id === channelId)?.name || "a channel";
+        const userName = removedUser?.fullName || removedUser?.email || "A user";
+        
+        addNotification({
+          id: Date.now().toString(),
+          message: `${userName} was removed from #${channelName}`,
+          type: "channel",
+          read: false,
+          timestamp: new Date(),
+          channelId: channelId
+        });
       });
 
       setSocket(newSocket);
@@ -316,6 +662,7 @@ const App: React.FC = () => {
     setChannelMessages([]);
     setSelectedUser(null);
     setSelectedChannel(null);
+    setNotifications([]);
   };
 
   // API functions
@@ -426,9 +773,53 @@ const App: React.FC = () => {
         setNewChannelName("");
         setNewChannelDescription("");
         setIsChannelPrivate(false);
+        
+        // Add notification
+        addNotification({
+          id: Date.now().toString(),
+          message: `You created a new channel #${response.data.data.name}`,
+          type: "channel",
+          read: true, // Mark as read since the user created it
+          timestamp: new Date(),
+          channelId: response.data.data.id
+        });
       }
     } catch (error) {
       console.error("Error creating channel:", error);
+    }
+  };
+
+  const deleteChannel = async () => {
+    if (!selectedChannel) return;
+    
+    try {
+      const token = localStorage.getItem("token");
+      await axios.delete(
+        `${API_BASE_URL}/channels/${selectedChannel.id}`,
+        {
+          headers: { Authorization: `Bearer ${token}` }
+        }
+      );
+      
+      // Remove from channels list
+      setChannels(channels.filter(c => c.id !== selectedChannel.id));
+      
+      // Reset selected channel
+      setSelectedChannel(null);
+      setChannelMessages([]);
+      setActiveSection("messages");
+      setShowDeleteChannelConfirm(false);
+      
+      // Add notification
+      addNotification({
+        id: Date.now().toString(),
+        message: `You deleted channel #${selectedChannel.name}`,
+        type: "channel",
+        read: true, // Mark as read since the user deleted it
+        timestamp: new Date()
+      });
+    } catch (error) {
+      console.error("Error deleting channel:", error);
     }
   };
 
@@ -582,6 +973,38 @@ const App: React.FC = () => {
     } catch (error) {
       console.error("Error deleting message:", error);
     }
+  };
+
+  // Format timestamp for notifications
+  const formatNotificationTime = (date: Date) => {
+    const now = new Date();
+    const diff = now.getTime() - date.getTime();
+    
+    // Less than a minute
+    if (diff < 60000) {
+      return 'Just now';
+    }
+    
+    // Less than an hour
+    if (diff < 3600000) {
+      const minutes = Math.floor(diff / 60000);
+      return `${minutes} ${minutes === 1 ? 'minute' : 'minutes'} ago`;
+    }
+    
+    // Less than a day
+    if (diff < 86400000) {
+      const hours = Math.floor(diff / 3600000);
+      return `${hours} ${hours === 1 ? 'hour' : 'hours'} ago`;
+    }
+    
+    // More than a day
+    const days = Math.floor(diff / 86400000);
+    if (days === 1) {
+      return 'Yesterday';
+    }
+    
+    // Format date
+    return date.toLocaleDateString();
   };
 
   // UI Components
@@ -824,6 +1247,75 @@ const App: React.FC = () => {
       </div>
 
       <div className="main-content">
+        <div className="top-bar">
+          <div className="notification-icon" onClick={() => {
+            setShowNotifications(!showNotifications);
+            if (!showNotifications) {
+              markAllNotificationsAsRead();
+            }
+          }}>
+            <Bell size={20} />
+            {unreadNotifications > 0 && (
+              <span className="notification-badge">{unreadNotifications}</span>
+            )}
+          </div>
+        </div>
+        
+        {showNotifications && (
+          <div className="notifications-panel">
+            <div className="notifications-header">
+              <h3>Notifications</h3>
+              <button className="close-button" onClick={() => setShowNotifications(false)}>
+                <X size={18} />
+              </button>
+            </div>
+            <div className="notifications-list">
+              {notifications.length === 0 ? (
+                <div className="no-notifications">No notifications yet</div>
+              ) : (
+                notifications.map(notification => (
+                  <div 
+                    key={notification.id} 
+                    className={`notification-item ${notification.read ? '' : 'unread'}`}
+                    onClick={() => {
+                      // Handle click on notification
+                      if (notification.channelId) {
+                        const channel = channels.find(c => c.id === notification.channelId);
+                        if (channel) {
+                          setSelectedChannel(channel);
+                          setSelectedUser(null);
+                          setActiveSection("messages");
+                          fetchChannelMessages(notification.channelId);
+                        }
+                      } else if (notification.senderId) {
+                        const user = users.find(u => u.id === notification.senderId);
+                        if (user) {
+                          setSelectedUser(user);
+                          setSelectedChannel(null);
+                          setActiveSection("messages");
+                          fetchDirectMessages(notification.senderId);
+                        }
+                      }
+                      
+                      // Mark this notification as read
+                      setNotifications(prev => 
+                        prev.map(n => n.id === notification.id ? {...n, read: true} : n)
+                      );
+                      
+                      setShowNotifications(false);
+                    }}
+                  >
+                    <div className="notification-content">
+                      <div className="notification-message">{notification.message}</div>
+                      <div className="notification-time">{formatNotificationTime(notification.timestamp)}</div>
+                    </div>
+                  </div>
+                ))
+              )}
+            </div>
+          </div>
+        )}
+
         {activeSection === "messages" && (
           <div className="messages-section">
             <div className="messages-header">
@@ -842,6 +1334,15 @@ const App: React.FC = () => {
                     >
                       <UserPlus size={18} />
                     </button>
+                    {selectedChannel.createdBy === currentUser?.id && (
+                      <button 
+                        className="channel-action-button delete-channel"
+                        onClick={() => setShowDeleteChannelConfirm(true)}
+                        title="Delete Channel"
+                      >
+                        <Trash2 size={18} />
+                      </button>
+                    )}
                     <span className="member-count">
                       {selectedChannel.members?.length || 0} members
                     </span>
@@ -904,7 +1405,7 @@ const App: React.FC = () => {
                       </div>
                       
                       {isEditing ? (
-                        <div className="edit-message-form">
+                         <div className="edit-message-form">
                           <input
                             type="text"
                             value={editMessageContent}
@@ -1143,6 +1644,42 @@ const App: React.FC = () => {
             <div className="modal-footer">
               <button className="primary-button" onClick={() => setShowAddMember(false)}>
                 Done
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+      
+      {/* Delete Channel Confirmation Modal */}
+      {showDeleteChannelConfirm && selectedChannel && (
+        <div className="modal-overlay">
+          <div className="modal">
+            <div className="modal-header">
+              <h3>Delete Channel</h3>
+              <button className="close-button" onClick={() => setShowDeleteChannelConfirm(false)}>
+                <X size={18} />
+              </button>
+            </div>
+            <div className="modal-body">
+              <p className="delete-confirmation-message">
+                Are you sure you want to delete the channel <strong>#{selectedChannel.name}</strong>?
+              </p>
+              <p className="delete-warning">
+                This action cannot be undone. All messages in this channel will be permanently deleted.
+              </p>
+            </div>
+            <div className="modal-footer">
+              <button 
+                className="secondary-button" 
+                onClick={() => setShowDeleteChannelConfirm(false)}
+              >
+                Cancel
+              </button>
+              <button 
+                className="danger-button" 
+                onClick={deleteChannel}
+              >
+                Delete Channel
               </button>
             </div>
           </div>

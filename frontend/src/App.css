@@ -145,6 +145,21 @@ button {
   opacity: 0.9;
 }
 
+.danger-button {
+  padding: 0.75rem;
+  background-color: var(--error-color);
+  color: white;
+  border: none;
+  border-radius: 4px;
+  font-size: 1rem;
+  font-weight: 500;
+  transition: background-color 0.2s;
+}
+
+.danger-button:hover {
+  background-color: #dc2626;
+}
+
 .auth-switch {
   margin-top: 1rem;
   text-align: center;
@@ -332,6 +347,117 @@ button {
   flex-direction: column;
   overflow: hidden;
   background-color: white;
+  position: relative;
+}
+
+/* Top Bar with Notifications */
+.top-bar {
+  display: flex;
+  justify-content: flex-end;
+  padding: 0.5rem 1rem;
+  border-bottom: 1px solid var(--border-color);
+  background-color: white;
+  z-index: 10;
+}
+
+.notification-icon {
+  position: relative;
+  cursor: pointer;
+  padding: 0.5rem;
+  border-radius: 50%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.notification-icon:hover {
+  background-color: var(--background-color);
+}
+
+.notification-badge {
+  position: absolute;
+  top: 0;
+  right: 0;
+  background-color: var(--error-color);
+  color: white;
+  font-size: 0.75rem;
+  width: 18px;
+  height: 18px;
+  border-radius: 50%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.notifications-panel {
+  position: absolute;
+  top: 50px;
+  right: 20px;
+  width: 320px;
+  max-height: 400px;
+  background-color: white;
+  border-radius: 8px;
+  box-shadow: var(--shadow);
+  z-index: 100;
+  overflow: hidden;
+  display: flex;
+  flex-direction: column;
+}
+
+.notifications-header {
+  padding: 1rem;
+  border-bottom: 1px solid var(--border-color);
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+}
+
+.notifications-header h3 {
+  font-size: 1.125rem;
+  font-weight: 600;
+}
+
+.notifications-list {
+  overflow-y: auto;
+  max-height: 350px;
+}
+
+.notification-item {
+  padding: 0.75rem 1rem;
+  border-bottom: 1px solid var(--border-color);
+  cursor: pointer;
+  transition: background-color 0.2s;
+}
+
+.notification-item:hover {
+  background-color: var(--background-color);
+}
+
+.notification-item.unread {
+  background-color: rgba(79, 70, 229, 0.05);
+  border-left: 3px solid var(--primary-color);
+}
+
+.notification-content {
+  display: flex;
+  flex-direction: column;
+  gap: 0.25rem;
+}
+
+.notification-message {
+  font-size: 0.875rem;
+}
+
+.notification-time {
+  font-size: 0.75rem;
+  color: var(--text-light);
+}
+
+.no-notifications {
+  padding: 2rem;
+  text-align: center;
+  color: var(--text-light);
+  font-style: italic;
 }
 
 /* Messages Section */
@@ -383,6 +509,11 @@ button {
 .channel-action-button:hover {
   background-color: var(--border-color);
   color: var(--text-color);
+}
+
+.channel-action-button.delete-channel:hover {
+  background-color: rgba(239, 68, 68, 0.1);
+  color: var(--error-color);
 }
 
 .member-count {
@@ -811,4 +942,19 @@ button {
   display: flex;
   justify-content: flex-end;
   gap: 0.75rem;
+}
+
+/* Delete Channel Confirmation */
+.delete-confirmation-message {
+  font-size: 1rem;
+  margin-bottom: 1rem;
+}
+
+.delete-warning {
+  color: var(--error-color);
+  font-size: 0.875rem;
+  padding: 0.75rem;
+  border: 1px solid var(--error-color);
+  border-radius: 4px;
+  background-color: rgba(239, 68, 68, 0.1);
 }
