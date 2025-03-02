@@ -1,0 +1,16 @@
+model Message {
+  id         String   @id @default(uuid())
+  content    String
+  created_at DateTime @default(now())
+  updated_at DateTime @updatedAt
+
+  senderId   String
+  receiverId String
+
+  type String
+
+  sender   User @relation("SentMessages", fields: [senderId], references: [id])
+  receiver User @relation("ReceivedMessages", fields: [receiverId], references: [id])
+
+ @@index([type])
+}
